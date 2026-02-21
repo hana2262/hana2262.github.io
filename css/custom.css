@@ -1,0 +1,26 @@
+/* 1. 强制设置全局背景图 */
+#web_bg {
+  background: url(/img/bg.png) !important; /* 把 bg.png 换成你现在的图片名 */
+  background-attachment: fixed !important; /* 让背景图不随滚动条滚动 */
+  background-size: cover !important;       /* 让图片铺满屏幕 */
+  background-repeat: no-repeat !important;
+}
+
+/* 2. 强制��页脚变透明 */
+#footer {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+/* 3. (可选) 让页脚文字变个颜色，不然背景太深可能看不清 */
+#footer-wrap {
+  color: #000 !important; /* 这里改成 #fff 就是白色文字 */
+}
+
+/* 4. (可选) 让文章卡片稍微透明一点，不然背景图被挡住看不见 */
+.layout > div:first-child:not(.recent-posts) .recent-post-item,
+#aside-content .card-widget,
+.layout > .post-content,
+.layout > .page {
+    background: rgba(255, 255, 255, 0.9) !important; /* 0.9 代表 90% 不透明度 */
+}
