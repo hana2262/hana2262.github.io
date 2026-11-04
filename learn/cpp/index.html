@@ -2590,6 +2590,303 @@
           "url": "https://eel.is/c++draft/vector.capacity"
         }
       ]
+    },
+    {
+      "id": "q-038",
+      "original": "1.什么是内存对齐？",
+      "tags": [
+        "内存对齐",
+        "字节对齐",
+        "alignof",
+        "alignas",
+        "padding"
+      ],
+      "answer": [
+        "内存对齐就是让对象放在满足其类型要求的地址上。例如要求 4 字节对齐的对象，起始地址就要是 4 的整数倍。这样既满足处理器和平台的访问要求，也通常能提高访问效率。",
+        "编译器会通过插入填充字节，让结构体的各成员正确对齐，并把结构体总大小补齐，使数组中的下一个结构体也满足对齐要求。",
+        "比如结构体先放一个 char，再放一个 int；假设 int 占 4 字节并要求 4 字节对齐，char 后面通常会补 3 字节，再放 int，所以结构体大小是 8 字节，而不是 5 字节。可以用 alignof 查询对齐要求，用 sizeof 查看包含填充后的大小。"
+      ],
+      "analysis": [
+        "对齐约束的是起始地址，大小描述的是占用空间，两者不是同一个概念。若某类型要求 4 字节对齐，可用地址是 0、4、8 等对齐位置；一个对象可以占用多个这样的间隔。一般对象的 sizeof 是其对齐要求的整数倍，保证数组相邻元素仍能对齐。",
+        "为什么会影响访问？硬件按一定粒度组织数据传输，未对齐访问可能跨越边界，需要更多处理；某些架构或指令还有严格对齐要求。具体耗时取决于硬件和访问模式，并非所有未对齐访问都会发生异常或固定多读一次。",
+        {
+          "type": "code",
+          "text": "#include \u003ccstddef>\n#include \u003ciostream>\n\nstruct Sample {\n    char tag;\n    int value;\n};\n\nint main() {\n    std::cout \u003c\u003c \"alignment: \" \u003c\u003c alignof(Sample) \u003c\u003c '\\n';\n    std::cout \u003c\u003c \"value offset: \" \u003c\u003c offsetof(Sample, value) \u003c\u003c '\\n';\n    std::cout \u003c\u003c \"size: \" \u003c\u003c sizeof(Sample) \u003c\u003c '\\n';\n}\n// 在 int 大小和对齐均为 4、普通布局的常见平台上：4、4、8。"
+        },
+        "结构体的常见布局方法是：每个成员的偏移向满足该成员对齐要求的位置补齐，末尾再向整个结构体对齐要求的整数倍补齐。普通情况下结构体对齐取成员中最大值；特殊对齐声明、打包设置、继承等会影响具体布局。",
+        "alignas 可以请求更严格的合法对齐，例如为某些 SIMD 数据指定更高对齐；#pragma pack 是编译器提供的打包扩展，减小填充可能带来未对齐访问。结构体直接写入文件或网络也不能只靠本机布局，应明确序列化字段和字节序。",
+        "与第 9 题对应：第 9 题侧重结构体成员排列和空间计算，本题先回答地址为什么需要对齐。"
+      ],
+      "keyPoints": [
+        "对齐约束起始地址：N 字节对齐通常要求地址为 N 的整数倍。",
+        "成员间和末尾的填充保证成员、数组元素都正确对齐。",
+        "sizeof 包含填充；alignof 查要求；alignas 可请求更严格对齐。"
+      ],
+      "references": [
+        {
+          "title": "C++ 工作草案：对齐要求",
+          "url": "https://eel.is/c++draft/basic.align"
+        },
+        {
+          "title": "C++ 工作草案：alignas",
+          "url": "https://eel.is/c++draft/dcl.align"
+        },
+        {
+          "title": "C++ 工作草案：sizeof",
+          "url": "https://eel.is/c++draft/expr.sizeof"
+        }
+      ]
+    },
+    {
+      "id": "q-039",
+      "original": "2.讲讲左值和右值。移动语义和完美转发是什么？解决了什么问题？",
+      "tags": [
+        "左值",
+        "右值",
+        "纯右值",
+        "将亡值",
+        "移动语义",
+        "完美转发",
+        "std::move",
+        "std::forward",
+        "转发引用"
+      ],
+      "answer": [
+        "左值和右值是表达式的分类。左值主要用来指代可以定位的对象，比如变量 x、解引用 *p；右值包括纯右值和将亡值，前者如整数 3、x + 1 这样的计算结果，后者如 std::move(x)，表示可以参与资源转移的对象。",
+        "移动语义解决的是资源对象深拷贝成本高的问题。比如一个对象拥有很大的动态缓冲区，拷贝要重新分配并复制数据；移动可以让目标对象接管原缓冲区，再让源对象保持可安全析构的状态。std::move 只是把表达式转换成右值形式，实际接管资源由移动构造或移动赋值完成。",
+        "完美转发解决的是参数经过一层包装函数后，丢失原来的左值、右值和 const 属性，导致调用错误重载或多余拷贝的问题。常用写法是模板参数 T&& 接收实参，再用 std::forward\u003cT> 转交：传入左值就继续按左值传，传入右值就继续按右值传。",
+        "之所以需要 forward，是因为参数一旦有了名字，在函数体中直接使用它就是左值。比如工厂函数接到一个临时对象，如果直接把参数名传给构造函数，可能发生拷贝；使用完美转发就能保留原来的移动机会，同时不会把调用者传入的左值擅自当成可移动对象。"
+      ],
+      "analysis": [
+        "值类别属于表达式，不是给变量永久贴标签。int&& r = 3 中 r 的声明类型是右值引用，但表达式 r 是左值；std::move(r) 才是将亡值。const int n = 1 中 n 也是左值，尽管不能给它赋值，因此“能放在赋值号左边”不能作为完整判断规则。",
+        {
+          "type": "table",
+          "caption": "从表达式理解值类别",
+          "headers": [
+            "表达式",
+            "类别",
+            "原因"
+          ],
+          "rows": [
+            [
+              "x、*p、返回 T& 的函数调用",
+              "左值",
+              "指代相应对象，是否可修改还要看 const 等条件。"
+            ],
+            [
+              "3、两个 int 相加的 x + 1",
+              "纯右值",
+              "计算出值，用于初始化对象或进一步运算。"
+            ],
+            [
+              "std::move(x)、返回 T&& 的函数调用（T 为对象类型）",
+              "将亡值",
+              "仍指代对象，但可以匹配移动操作。"
+            ],
+            [
+              "右值引用变量 r 的名字",
+              "左值",
+              "具名参数或变量的使用不会自动变成右值。"
+            ]
+          ]
+        },
+        "完美转发的关键是模板推导和引用折叠。在 template\u003cclass T> void relay(T&& arg) 中，传入 U 类型左值时，T 推导为 U&，T&& 折叠为 U&；传入 U 类型右值时，T 推导为 U，形参为 U&&。std::forward\u003cT>(arg) 根据这个 T 恢复调用者的值类别；传入 const U 左值时，也会保留 const。",
+        {
+          "type": "code",
+          "text": "#include \u003ciostream>\n#include \u003cmemory>\n#include \u003cutility>\n\nconst char* pick(int&) { return \"lvalue\"; }\nconst char* pick(const int&) { return \"const lvalue\"; }\nconst char* pick(int&&) { return \"rvalue\"; }\n\ntemplate\u003cclass T>\nconst char* relay(T&& arg) {\n    return pick(std::forward\u003cT>(arg));\n}\n\nint main() {\n    int x = 7;\n    const int cx = 8;\n    int&& r = 9;\n    std::cout \u003c\u003c relay(x) \u003c\u003c '\\n';             // lvalue\n    std::cout \u003c\u003c relay(10) \u003c\u003c '\\n';            // rvalue\n    std::cout \u003c\u003c relay(cx) \u003c\u003c '\\n';            // const lvalue\n    std::cout \u003c\u003c relay(r) \u003c\u003c '\\n';             // lvalue\n    std::cout \u003c\u003c relay(std::move(r)) \u003c\u003c '\\n';  // rvalue\n\n    auto owner = std::make_unique\u003cint>(42);\n    auto next = std::move(owner); // 转移所有权，不复制那个 int 对象\n    std::cout \u003c\u003c bool(owner) \u003c\u003c ' ' \u003c\u003c *next \u003c\u003c '\\n'; // 0 42\n}\n// 若把 relay 中的 forward 去掉，arg 都是左值，右值实参也会选中左值重载。"
+        },
+        "移动需要类型提供相应语义，并不保证每种对象移动都比拷贝便宜。std::move(const_object) 通常不能绑定到需要非 const T&& 的移动构造函数，可能仍会拷贝；标准库对象移动后通常有效但状态未指定，unique_ptr 等有更明确的空状态保证。",
+        "不是所有 T&& 都是转发引用：需要处于相应的类型推导语境，例如上面的函数模板。const T&& 不是这种转发引用；类模板的类型参数已经确定后，普通成员函数中的 T&& 也不会因此自动接受左值。引用折叠规则是出现 & 就折叠为 &，只有 && 与 && 折叠为 &&。",
+        "移动语义决定如何转移资源；完美转发决定包装层把参数以什么类别传下去。std::forward 本身不执行移动，也不承诺所有输入都能推导，例如单独的花括号初始化列表可能无法为普通 T&& 推导出 T。"
+      ],
+      "keyPoints": [
+        "左值指代对象；右值分为纯右值和将亡值；有名字的右值引用表达式仍是左值。",
+        "移动语义转移资源所有权，减少深拷贝；std::move 本身只做转换。",
+        "完美转发用推导的 T&& 和 std::forward\u003cT> 保留值类别及 const 属性。",
+        "move 表达允许移动的意图；forward 在包装层保留调用者的传参方式。"
+      ],
+      "references": [
+        {
+          "title": "C++ 工作草案：表达式值类别",
+          "url": "https://eel.is/c++draft/basic.lval"
+        },
+        {
+          "title": "C++ 工作草案：move 与 forward",
+          "url": "https://eel.is/c++draft/forward"
+        },
+        {
+          "title": "C++ 工作草案：转发引用与模板实参推导",
+          "url": "https://eel.is/c++draft/temp.deduct.call"
+        },
+        {
+          "title": "C++ 工作草案：引用折叠",
+          "url": "https://eel.is/c++draft/dcl.ref"
+        },
+        {
+          "title": "C++ 工作草案：拷贝与移动构造",
+          "url": "https://eel.is/c++draft/class.copy.ctor"
+        }
+      ]
+    },
+    {
+      "id": "q-040",
+      "original": "3.讲讲STL中的std::vector。它的扩容机制是怎样的？频繁扩容会有什么性能隐患？怎么解决？",
+      "tags": [
+        "STL",
+        "vector",
+        "扩容",
+        "reserve",
+        "capacity",
+        "性能",
+        "移动构造",
+        "帧时间"
+      ],
+      "answer": [
+        "vector 是动态连续数组，支持 O(1) 下标访问，连续存储也适合批量遍历。它用 size 表示当前元素数，用 capacity 表示不重新分配时最多能容纳多少元素。",
+        "插入后元素数超过容量时，vector 会申请更大的连续存储，把原元素移动或拷贝过去，完成新元素构造，再清理旧存储。容量通常按比例增长，因此尾插摊还 O(1)，但扩容那一次仍可能是 O(n)，增长倍数由标准库实现决定。",
+        "频繁扩容会反复申请、释放内存和搬移元素，消耗分配器时间与内存带宽，迁移期间还可能同时占用新旧两块存储。对大对象或游戏逐帧更新，这可能造成耗时尖峰；原有元素的指针、引用和迭代器也会失效。",
+        "解决办法是预估数量并提前 reserve，反复使用的容器保留容量，例如每帧 clear 后复用；不要每插一个元素就 reserve(size()+1)。资源型元素提供高效且真正不抛异常的移动构造，可以降低迁移成本。无法预估数量、又不能接受整段迁移时，再考虑分块存储等更合适的结构。"
+      ],
+      "analysis": [
+        "扩容是容量不足时更换缓冲区，不是每次 push_back 都申请内存。比如容量为 8、已有 8 个元素，再添加一个就需要更大存储；若容量为 16、只有 8 个元素，则可以在尾部直接构造第 9 个元素。普通 vector\u003cT> 保证元素连续，vector\u003cbool> 是特殊的压缩位表示特化。",
+        "为什么按比例增长能摊还 O(1)？以容量翻倍的示意序列 1、2、4、8 为例，扩容搬移数量是几何级数，累计搬移量与最终元素数量同阶。如果每次只多留一个位置，搬移量可能变成 1+2+…+(n-1)，总成本达到 O(n²)。翻倍只是解释模型，不是所有标准库固定采用的倍率。",
+        {
+          "type": "table",
+          "caption": "性能问题与对应处理",
+          "headers": [
+            "问题来源",
+            "实际代价",
+            "处理方式"
+          ],
+          "rows": [
+            [
+              "重复分配和释放",
+              "分配器开销、延迟波动，可能增加碎片压力",
+              "在加载阶段 reserve；跨帧复用容器容量。"
+            ],
+            [
+              "迁移全部旧元素",
+              "O(n) 搬移，资源型元素的拷贝可能更贵",
+              "减少扩容次数；为资源类型提供正确的 noexcept 移动。"
+            ],
+            [
+              "迁移期间保留旧存储",
+              "峰值内存可能高于扩容完成后的占用",
+              "合理估算预留量，避免盲目为所有容器预留巨大容量。"
+            ],
+            [
+              "缓存了元素地址",
+              "重分配后地址和迭代器失效",
+              "重新获取访问位置；需要稳定身份时设计句柄或选择相应存储结构。"
+            ],
+            [
+              "每帧收缩后又重新填充",
+              "反复丢掉已有容量，重复付出分配成本",
+              "clear 后直接复用，不在热点循环反复 shrink_to_fit。"
+            ]
+          ]
+        },
+        {
+          "type": "code",
+          "text": "#include \u003ccassert>\n#include \u003cvector>\n\nstruct Particle { float x = 0; float y = 0; };\n\nint main() {\n    std::vector\u003cParticle> particles;\n    particles.reserve(1000); // 预留容量，size 仍是 0\n    const auto reserved = particles.capacity();\n    assert(particles.empty());\n\n    for (int frame = 0; frame \u003c 3; ++frame) {\n        particles.clear(); // 销毁上一帧元素，保留缓冲区\n        for (int i = 0; i \u003c 1000; ++i) {\n            particles.push_back(Particle{});\n        }\n        assert(particles.size() == 1000);\n        assert(particles.capacity() == reserved); // 本例没有再次扩容\n    }\n}"
+        },
+        "reserve 改容量而不创建元素，resize 改元素数量并可能构造或销毁元素。reserve(1000) 后 size 仍是 0，不能直接通过下标写第 999 个元素；应使用 push_back/emplace_back，或先 resize 建立这些元素。",
+        "迁移时不一定选择移动：若移动可能抛异常、拷贝又可用，实现可能优先拷贝来维持异常保证。只有实现确实不抛异常时才声明 noexcept；不能为了让 vector 选择移动而掩盖可能抛出的操作。",
+        "emplace_back 可以减少为新元素构造临时对象的步骤，但不能消除扩容时旧元素的迁移。deque 等分块结构能避免 vector 式整段迁移，代价是失去整体连续存储；改容器前要确认是否需要连续数据、随机访问和地址稳定性。"
+      ],
+      "keyPoints": [
+        "vector 连续存储，size 与 capacity 不同；容量不足才重新分配。",
+        "尾插摊还 O(1)，扩容单次 O(n)；频繁扩容增加搬移、分配和峰值内存。",
+        "提前 reserve、clear 后复用容量，避免逐次 reserve(size()+1) 和频繁收缩。",
+        "正确的 noexcept 移动能减少迁移成本；emplace_back 不能阻止扩容。"
+      ],
+      "references": [
+        {
+          "title": "C++ 工作草案：vector 连续存储和复杂度",
+          "url": "https://eel.is/c++draft/vector.overview"
+        },
+        {
+          "title": "C++ 工作草案：reserve、resize 和 shrink_to_fit",
+          "url": "https://eel.is/c++draft/vector.capacity"
+        },
+        {
+          "title": "C++ 工作草案：插入、失效与异常保证",
+          "url": "https://eel.is/c++draft/vector.modifiers"
+        }
+      ]
+    },
+    {
+      "id": "q-041",
+      "original": "4.哈希表底层原理？是怎么解决哈希冲突的？如果Key是自定义对象需要注意什么？",
+      "tags": [
+        "哈希表",
+        "哈希冲突",
+        "unordered_map",
+        "自定义Key",
+        "Hash",
+        "KeyEqual",
+        "负载因子",
+        "rehash"
+      ],
+      "answer": [
+        "哈希表先用哈希函数把 Key 转成哈希值，再映射到桶或槽位。查找时走同样的定位过程，再用相等比较确认是不是目标 Key。分布合理时，插入、删除和查找平均是 O(1)，冲突严重时可能退化成 O(n)。",
+        "冲突是不同 Key 落到同一位置。常见处理方式有链地址法和开放寻址法：链地址法把冲突元素放进同一个桶的链式结构，查找时逐个比较；开放寻址法把元素放在表内，冲突后按探测规则寻找其他槽位，比如线性探测或二次探测。标准库 unordered 容器常见实现采用桶加节点的方式。",
+        "元素变多后，可以增加桶数并重新分配元素到桶，也就是 rehash，配合控制负载因子减少拥挤。但哈希函数本身分布很差时，只扩桶解决不了所有冲突。",
+        "自定义 Key 要提供哈希函数和相等判断，并保证相等的 Key 一定得到相同哈希值；哈希值相同则不一定相等。例如用服务器 ID 和玩家 ID 共同标识玩家，就要让相等比较检查这两个字段，哈希也按这两个字段组合。Key 放进容器后，参与这些运算的内容必须保持稳定。"
+      ],
+      "analysis": [
+        "查找要经过两次判断：哈希定位缩小候选范围，相等比较确定目标。哈希不是唯一编号；两个不同 Key 即使哈希值完全相同，也可以通过相等比较区分。反过来，如果相等的 Key 被哈希到不同位置，查找或去重就会出现错误。",
+        {
+          "type": "table",
+          "caption": "两种常见冲突处理方式",
+          "headers": [
+            "方法",
+            "插入和查找",
+            "删除及性能特点"
+          ],
+          "rows": [
+            [
+              "链地址法",
+              "定位桶后，在桶关联的节点结构中比较 Key；碰撞元素共用一个桶。",
+              "删除时断开节点链接；常有节点分配和指针访问开销。"
+            ],
+            [
+              "开放寻址法",
+              "元素直接占用槽位；冲突后按一致的探测序列继续寻找。",
+              "常需墓碑标记或回移修复，直接置成普通空槽可能截断查找；装载过高会拉长探测序列。"
+            ]
+          ]
+        },
+        "负载因子可理解为元素数除以桶数或槽位数。链地址表的负载因子可以大于 1；开放寻址通常需要保留一定空槽。对 unordered_map，可设置 max_load_factor，再按预计元素数 reserve；reserve 的参数是预计元素数量，rehash 的参数是桶数量下限。好哈希、合适负载和扩容共同影响性能，任何一个都不能单独保证最坏 O(1)。",
+        {
+          "type": "code",
+          "text": "#include \u003ccassert>\n#include \u003ccstddef>\n#include \u003cfunctional>\n#include \u003cunordered_map>\n\nstruct PlayerKey {\n    int serverId;\n    int playerId;\n    bool operator==(const PlayerKey& other) const noexcept {\n        return serverId == other.serverId && playerId == other.playerId;\n    }\n};\n\nstruct PlayerKeyHash {\n    std::size_t operator()(const PlayerKey& key) const noexcept {\n        const auto h1 = std::hash\u003cint>{}(key.serverId);\n        const auto h2 = std::hash\u003cint>{}(key.playerId);\n        return h1 ^ (h2 + std::size_t{0x9e3779b9u} + (h1 \u003c\u003c 6) + (h1 >> 2));\n    }\n};\n\nint main() {\n    std::unordered_map\u003cPlayerKey, int, PlayerKeyHash> scores;\n    scores.max_load_factor(0.75f);\n    scores.reserve(1000);\n    scores.emplace(PlayerKey{1, 42}, 100);\n    scores.emplace(PlayerKey{2, 42}, 200);\n    assert(scores.at(PlayerKey{1, 42}) == 100);\n    assert(scores.at(PlayerKey{2, 42}) == 200);\n    const auto result = scores.emplace(PlayerKey{1, 42}, 999);\n    assert(!result.second); // 相等的 Key 不会重复插入\n    assert(scores.size() == 2);\n}"
+        },
+        "上例使用 operator== 配合默认的 std::equal_to\u003cPlayerKey>；也可以给 unordered_map 的第四个模板参数传入自定义相等比较器。相等关系要满足自反、对称、传递；例如大小写不敏感比较必须配合按同样规则计算的哈希，不能一边忽略大小写、一边用原始大小写计算。",
+        "哈希应与逻辑身份一致并尽量分布均匀。相等只比较 ID 时，哈希不能再掺入昵称等可变且可能不同的字段；反过来，哈希只用部分身份字段不一定违反正确性，但通常会增加碰撞。示例的组合公式用于演示字段组合，不保证任意业务数据都具有最佳分布。",
+        "不要直接按整个结构体的原始字节做哈希：填充字节和对象内部指针可能使逻辑相等的对象得到不同结果。键按字符串内容比较时，也不能用字符串缓冲区地址代替内容哈希。容器中的 Key 本身受 const 约束，但它间接引用的外部数据仍可能变化，也必须保持哈希和相等结果稳定。",
+        "rehash 会使 unordered 容器的迭代器失效，但不会使未删除元素的指针和引用失效。它解决分桶组织问题，不等同于 vector 扩容时把所有元素对象搬到新地址。标准规定接口和行为要求，没有要求所有哈希表实现都采用同一种节点布局。"
+      ],
+      "keyPoints": [
+        "哈希定位候选桶或槽，相等比较确定目标；平均 O(1)、最坏 O(n)。",
+        "冲突处理：链地址法、开放寻址法；扩桶和负载控制改善分布。",
+        "自定义 Key：提供 Hash 与相等判断；相等必须同哈希，同哈希未必相等。",
+        "键的逻辑身份和哈希结果保持稳定，按相同语义处理参与比较的字段。"
+      ],
+      "references": [
+        {
+          "title": "C++ 工作草案：无序容器的哈希、相等关系及 rehash",
+          "url": "https://eel.is/c++draft/unord.req"
+        },
+        {
+          "title": "C++ 工作草案：Hash 要求",
+          "url": "https://eel.is/c++draft/hash.requirements"
+        },
+        {
+          "title": "C++ 工作草案：unordered_map 模板参数和接口",
+          "url": "https://eel.is/c++draft/unord.map.overview"
+        }
+      ]
     }
   ],
   "resources": []
